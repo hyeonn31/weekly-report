@@ -10,13 +10,16 @@ const ASSET = process.env.ASSET_SHEET_ID || '';
 const ASSET_GID = 2060678306;
 
 const TAB = {
-  team:      { name: '1_팀원업무', w: 8 },
+  team:      { name: '1_팀원업무', w: 7 },   // 날짜 기반: 날짜·담당자·분류·업무내용·상태·우선순위·완료일
   facility:  { name: '2_시설',     w: 7 },
   assets:    { name: '3_비품',     w: 7 },
   contracts: { name: '4_계약',     w: 5 },
   notes:     { name: '5_특이사항', w: 6 }
 };
+const WEEKLY_KEYS = ['facility', 'assets', 'contracts', 'notes'];   // 주차(col0) 기반 탭
+const TEAM_COLS = ['날짜', '담당자', '분류', '업무내용', '상태', '우선순위', '완료일'];
 const WEEKS = '설정', WEEKS_W = 8, MEMBERS = 'M_담당자';
+function addDaysISO(iso, n) { var p = String(iso).split('-'); if (p.length < 3) return ''; var d = new Date(+p[0], +p[1] - 1, +p[2]); d.setDate(d.getDate() + n); var z = function (x) { return ('0' + x).slice(-2); }; return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()); }
 
 function sheetsClient() {
   var raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -43,7 +46,8 @@ module.exports = async (req, res) => {
 async function dispatch(sheets, action, args) {
   if (action === 'getReportData') return getReportData(sheets);
   if (action === 'saveWeek') return saveWeek(sheets, JSON.parse(args[0]));
-  if (action === 'deleteWeek') return deleteWeek(sheets, args[0]);
+  if (action === 'saveDay') return saveDay(sheets, args[0], args[1]);
+  if (action === 'deleteWeek') return deleteWeek(sheets, args[0], args[1], args[2]);
   if (action === 'renameWeek') return renameWeek(sheets, args[0], args[1]);
   if (action === 'importAssets') return importAssets(sheets, args[0], args[1]);
   throw new Error('알 수 없는 action: ' + action);
@@ -68,10 +72,13 @@ function tabRows(vals, w) {
 
 /* ---------- 조회 ---------- */
 async function getReportData(sheets) {
+  // 팀 시트가 예전(주차 기반)이면 날짜 기반으로 자동 변환
+  var th = await vget(sheets, DB, TAB.team.name);
+  if (!th.length || String((th[0] || [])[0] || '').trim() !== '날짜') { await migrateTeamDaily(sheets, th); th = await vget(sheets, DB, TAB.team.name); }
   var q = await Promise.all([
     vget(sheets, DB, WEEKS), vget(sheets, DB, MEMBERS),
-    vget(sheets, DB, TAB.team.name), vget(sheets, DB, TAB.facility.name),
-    vget(sheets, DB, TAB.assets.name), vget(sheets, DB, TAB.contracts.name), vget(sheets, DB, TAB.notes.name)
+    vget(sheets, DB, TAB.facility.name), vget(sheets, DB, TAB.assets.name),
+    vget(sheets, DB, TAB.contracts.name), vget(sheets, DB, TAB.notes.name)
   ]);
   var wk = q[0], mem = q[1];
   return {
@@ -83,9 +90,21 @@ async function getReportData(sheets) {
     members: body_(mem).filter(function (r) { return String(r[0] || '').trim() && String(r[3] || '').toUpperCase() !== 'N'; }).map(function (r) {
       return { name: r[0], team: r[1] || '', title: r[2] || '' };
     }),
-    team: tabRows(q[2], TAB.team.w), facility: tabRows(q[3], TAB.facility.w),
-    assets: tabRows(q[4], TAB.assets.w), contracts: tabRows(q[5], TAB.contracts.w), notes: tabRows(q[6], TAB.notes.w)
+    team: tabRows(th, TAB.team.w), facility: tabRows(q[2], TAB.facility.w),
+    assets: tabRows(q[3], TAB.assets.w), contracts: tabRows(q[4], TAB.contracts.w), notes: tabRows(q[5], TAB.notes.w)
   };
+}
+async function migrateTeamDaily(sheets, teamVals) {
+  var vals = teamVals || await vget(sheets, DB, TAB.team.name);
+  if ((vals[0] || [])[0] && String(vals[0][0]).trim() === '날짜') return;
+  var startOf = {}; body_(await vget(sheets, DB, WEEKS)).forEach(function (r) { if (String(r[0] || '').trim()) startOf[String(r[0]).trim()] = r[1] || ''; });
+  var rows = body_(vals).filter(function (r) { return String(r[1] || '').trim(); }).map(function (r) {
+    var wk = String(r[0] || '').trim(), when = String(r[2] || '').trim(), d = startOf[wk] || '';
+    if (d && when.indexOf('다음') > -1) d = addDaysISO(d, 7);
+    return [d, r[1] || '', r[3] || '', r[4] || '', r[5] || '', r[6] || '', r[7] || ''];
+  });
+  await sheets.spreadsheets.values.clear({ spreadsheetId: DB, range: TAB.team.name + '!A:Z' });
+  await sheets.spreadsheets.values.update({ spreadsheetId: DB, range: TAB.team.name + '!A1', valueInputOption: 'RAW', requestBody: { values: [TEAM_COLS].concat(rows) } });
 }
 
 /* ---------- 저장 ---------- */
@@ -101,8 +120,18 @@ async function saveWeek(sheets, p) {
   });
   if (!found) rows.push([week, m.start || '', m.end || '', m.dept || '', m.status || 'warning', m.statusLabel || '', m.date || '', nowS]);
   await writeTab(sheets, WEEKS, rows, WEEKS_W);
-  for (var k in TAB) { await replaceWeekRows(sheets, TAB[k], week, p[k] || []); }
+  for (var i = 0; i < WEEKLY_KEYS.length; i++) { var t = TAB[WEEKLY_KEYS[i]]; await replaceWeekRows(sheets, t, week, p[WEEKLY_KEYS[i]] || []); }
   return { ok: true, savedAt: z(now.getHours()) + ':' + z(now.getMinutes()) + ':' + z(now.getSeconds()) };
+}
+// 하루치 팀원 업무 저장 (해당 날짜 행만 교체)
+async function saveDay(sheets, date, rows) {
+  date = String(date || '').trim(); if (!date) throw new Error('날짜가 비어 있습니다.');
+  var vals = await vget(sheets, DB, TAB.team.name);
+  if (String((vals[0] || [])[0] || '').trim() !== '날짜') { await migrateTeamDaily(sheets, vals); vals = await vget(sheets, DB, TAB.team.name); }
+  var kept = body_(vals).map(function (r) { return pad(r, 7); }).filter(function (r) { return r.join('').trim() !== '' && String(r[0]).trim() !== date; });
+  (rows || []).forEach(function (rr) { if (rr.join('').trim() !== '') kept.push([date].concat(rr)); });
+  await writeTab(sheets, TAB.team.name, kept, 7);
+  return { ok: true };
 }
 async function replaceWeekRows(sheets, t, week, rows) {
   var kept = body_(await vget(sheets, DB, t.name)).map(function (r) { return pad(r, t.w); })
@@ -110,11 +139,17 @@ async function replaceWeekRows(sheets, t, week, rows) {
   (rows || []).forEach(function (rr) { if (rr.join('').trim() !== '') kept.push([week].concat(rr)); });
   await writeTab(sheets, t.name, kept, t.w);
 }
-async function deleteWeek(sheets, week) {
+async function deleteWeek(sheets, week, start, end) {
   week = String(week || '').trim(); if (!week) return { ok: false };
   var rows = body_(await vget(sheets, DB, WEEKS)).filter(function (r) { return String(r[0] || '').trim() && String(r[0]).trim() !== week; }).map(function (r) { return pad(r, WEEKS_W); });
   await writeTab(sheets, WEEKS, rows, WEEKS_W);
-  for (var k in TAB) { await replaceWeekRows(sheets, TAB[k], week, []); }
+  for (var i = 0; i < WEEKLY_KEYS.length; i++) { await replaceWeekRows(sheets, TAB[WEEKLY_KEYS[i]], week, []); }
+  // 팀원 업무는 날짜 기반 → 그 주 기간의 날짜 행 삭제
+  if (start && end) {
+    var tv = body_(await vget(sheets, DB, TAB.team.name)).map(function (r) { return pad(r, 7); })
+      .filter(function (r) { return r.join('').trim() !== '' && !(String(r[0]) >= start && String(r[0]) <= end); });
+    await writeTab(sheets, TAB.team.name, tv, 7);
+  }
   return { ok: true };
 }
 async function renameWeek(sheets, oldW, newW) {
@@ -122,13 +157,13 @@ async function renameWeek(sheets, oldW, newW) {
   var wr = body_(await vget(sheets, DB, WEEKS)).filter(function (r) { return String(r[0] || '').trim(); })
     .map(function (r) { r = pad(r, WEEKS_W); if (String(r[0]).trim() === oldW) r[0] = newW; return r; });
   await writeTab(sheets, WEEKS, wr, WEEKS_W);
-  for (var k in TAB) {
-    var t = TAB[k];
+  for (var i = 0; i < WEEKLY_KEYS.length; i++) {
+    var t = TAB[WEEKLY_KEYS[i]];
     var rr = body_(await vget(sheets, DB, t.name)).map(function (r) { r = pad(r, t.w); if (String(r[0]).trim() === oldW) r[0] = newW; return r; })
       .filter(function (r) { return r.join('').trim() !== '' && String(r[0]).trim(); });
     await writeTab(sheets, t.name, rr, t.w);
   }
-  return { ok: true };
+  return { ok: true };   // 팀원 업무는 날짜 기반이라 주차명 변경 영향 없음
 }
 
 /* ---------- 외부 자산시트 → 비품 집계 ---------- */
