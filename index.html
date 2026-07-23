@@ -365,6 +365,7 @@ if (typeof google === 'undefined' || !(google.script && google.script.run)) {
         return '<div class="trow"><select class="ed dstatus" '+d+'>'+selOpts([''].concat(VW.stTask),t.status)+'</select><select class="ed dcat" '+d+'>'+selOpts([''].concat(VW.catTask),t.cat)+'</select><select class="ed dprio" '+d+'>'+selOpts([''].concat(VW.prio),t.prio)+'</select><div class="gtext" contenteditable="true" data-fld="dtext" '+d+'>'+h(t.text)+'</div><button class="delx" data-act="dDelT" '+d+' title="삭제">×</button></div>'; }).join('');
       return '<div class="gblock"><div class="gh"><input class="gname dname" list="memberDL" data-mi="'+mi+'" value="'+a(mb.name)+'" placeholder="담당자"><button class="delx" data-act="dDelM" data-mi="'+mi+'" title="삭제">×</button></div><div class="wk">'+tasks+'<button class="addbtn sm" data-act="dAddT" data-mi="'+mi+'">+ 업무 추가</button></div></div>'; }).join('');
     return editHint('그날 한 일/할 일을 담당자별로 입력하세요. 저장하면 그 날짜가 속한 주의 주간보고에 자동 반영됩니다.')+dayBar()+dl+'<div class="gwrap">'+(blocks||'<div class="empty">＋ 담당자 추가로 시작하세요.</div>')+'</div><button class="addbtn" data-act="dAddM">+ 담당자 추가</button>'; }
+  function renderDaily(){ var sd=SECT.daily; app.innerHTML='<div class="page-head"><h1>'+h(sd.kr)+'</h1><span class="sub">'+h(sd.sub)+'</span></div>'+panDaily(); Array.prototype.forEach.call(document.querySelectorAll('.nav-item'),function(b){ b.classList.toggle('active',b.dataset.nav==='daily'); }); }
 
   /* ---- flat editor ---- */
   function editTable(){ var cols=COLS[active],drop=DROP[active]||{},dc=DATECELL[active]||{},rows=D[active];
@@ -378,7 +379,7 @@ if (typeof google === 'undefined' || !(google.script && google.script.run)) {
   var VIEW={ team:vTeamView, facility:vFacilityView, assets:vAssets, contracts:vContracts, notes:vNotes };
   function show(id){ active=id;
     if(id==='home'){ app.innerHTML=panHome(); }
-    else if(id==='daily'){ if(!dayDate) dayDate=todayISO(); loadDay(); var sd=SECT.daily; app.innerHTML='<div class="page-head"><h1>'+h(sd.kr)+'</h1><span class="sub">'+h(sd.sub)+'</span></div>'+panDaily(); }
+    else if(id==='daily'){ if(!dayDate) dayDate=todayISO(); loadDay(); renderDaily(); }
     else if(id==='followup'){ var sf=SECT.followup; app.innerHTML='<div class="page-head"><h1>'+h(sf.kr)+'</h1><span class="sub">'+h(sf.sub)+' · '+followupList().length+'건</span></div>'+panFollowup(); }
     else { var s=SECT[id]; var content=(editMode&&id!=='team')?editTable():VIEW[id](); app.innerHTML='<div class="page-head"><h1>'+h(s.kr)+'</h1><span class="sub">'+h(s.sub)+'</span></div>'+content; }
     Array.prototype.forEach.call(document.querySelectorAll('.nav-item'),function(b){ b.classList.toggle('active',b.dataset.nav===id); });
@@ -408,10 +409,10 @@ if (typeof google === 'undefined' || !(google.script && google.script.run)) {
     else if(act==='delM'){ editG.team.splice(mi,1); dirty=true; show(active); }
     else if(act==='addT'){ editG.team[mi][wk].push({cat:'',text:'',status:'예정',prio:'보통',done:''}); dirty=true; show(active); }
     else if(act==='delT'){ editG.team[mi][wk].splice(+b.dataset.ti,1); dirty=true; show(active); }
-    else if(act==='dAddM'){ dayG.push({name:'',tasks:[{cat:'',text:'',status:'',prio:'보통',done:''}]}); dayDirty=true; show('daily'); var dn=app.querySelectorAll('.dname'); if(dn.length)dn[dn.length-1].focus(); }
-    else if(act==='dDelM'){ dayG.splice(mi,1); dayDirty=true; show('daily'); }
-    else if(act==='dAddT'){ dayG[mi].tasks.push({cat:'',text:'',status:'',prio:'보통',done:''}); dayDirty=true; show('daily'); }
-    else if(act==='dDelT'){ dayG[mi].tasks.splice(+b.dataset.ti,1); dayDirty=true; show('daily'); }
+    else if(act==='dAddM'){ dayG.push({name:'',tasks:[{cat:'',text:'',status:'',prio:'보통',done:''}]}); dayDirty=true; renderDaily(); var dn=app.querySelectorAll('.dname'); if(dn.length)dn[dn.length-1].focus(); }
+    else if(act==='dDelM'){ dayG.splice(mi,1); dayDirty=true; renderDaily(); }
+    else if(act==='dAddT'){ dayG[mi].tasks.push({cat:'',text:'',status:'',prio:'보통',done:''}); dayDirty=true; renderDaily(); }
+    else if(act==='dDelT'){ dayG[mi].tasks.splice(+b.dataset.ti,1); dayDirty=true; renderDaily(); }
     else if(act==='dSave'){ var drows=flattenDay(); toast('저장 중…'); google.script.run.withSuccessHandler(function(){ dayDirty=false; toast('저장되었습니다.'); reload(sel); }).withFailureHandler(function(err){ toast('저장 실패: '+(err&&err.message?err.message:err)); }).saveDay(dayDate,drows); }
     else if(act==='importAssets'){ if(!D.meta.start||!D.meta.end){ toast('먼저 기간(시작일·종료일)을 설정한 뒤 다시 시도하세요.'); return; } toast('외부 자산시트 집계 중…');
       google.script.run.withSuccessHandler(function(rows){ D.assets=rows||[]; dirty=true; show('assets'); toast((rows?rows.length:0)+'개 항목을 불러왔습니다. 검토 후 💾 저장하세요.'); }).withFailureHandler(function(err){ toast('불러오기 실패: '+(err&&err.message?err.message:err)); }).importAssets(D.meta.start,D.meta.end); } });
