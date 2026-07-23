@@ -172,7 +172,7 @@ if (typeof google === 'undefined' || !(google.script && google.script.run)) {
     function Runner(){ this._s=function(){}; this._f=function(){}; }
     Runner.prototype.withSuccessHandler=function(fn){ this._s=fn||function(){}; return this; };
     Runner.prototype.withFailureHandler=function(fn){ this._f=fn||function(){}; return this; };
-    ['getReportData','saveWeek','deleteWeek','renameWeek','importAssets'].forEach(function(name){
+    ['getReportData','saveWeek','saveDay','deleteWeek','renameWeek','importAssets'].forEach(function(name){
       Runner.prototype[name]=function(){ var args=[].slice.call(arguments), self=this;
         fetch('/api/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:name,args:args})})
           .then(function(r){ return r.json(); })
