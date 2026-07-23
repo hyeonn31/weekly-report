@@ -204,7 +204,7 @@ if (typeof google === 'undefined' || !(google.script && google.script.run)) {
   function num0(x){ var n=parseFloat(x); return isNaN(n)?null:n; }
   function dday(dateStr){ var d=parseISO(dateStr); if(!d) return null; var t=new Date(); t.setHours(0,0,0,0); return Math.round((d.getTime()-t.getTime())/86400000); }
 
-  var VW={ when:['이번주','다음주'], catTask:['IT','시설','총무','구매','기타'], catFac:['인테리어','설비','환경','보안','기타'],
+  var VW={ when:['이번주','다음주'], catTask:['자산','시설','구매','기타'], catFac:['인테리어','설비','환경','보안','기타'],
     stTask:['예정','진행중','완료','보류','이슈'], stFac:['예정','진행중','완료','이슈'], prio:['높음','보통','낮음'],
     region:['서울','부산','기타'], item:['노트북','MAC','데스크탑','휴대폰','기타'], ctype:['부동산','SW','HW','기타'], ntype:['휴직','공가','연차','교육','파견','기타'] };
   var CAT=['cat-1','cat-2','cat-3','cat-4','cat-5','cat-6']; function catColor(c){ return 'var(--'+c+')'; }
